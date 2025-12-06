@@ -1,4 +1,4 @@
-# Dither3D for Godot
+# Surface-Stable Fractal Dithering for Godot
 
 This is a port of [Dither3D](https://github.com/runevision/Dither3D) to Godot Engine, packaged as a plugin.
 
