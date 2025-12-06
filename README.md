@@ -10,43 +10,9 @@ This is a port of [Dither3D](https://github.com/runevision/Dither3D) to Godot En
   - `Dither3DCutout.gdshader`: Alpha cutout support.
   - `Dither3DParticleAdd.gdshader`: Additive particles.
   - `Dither3DSkybox.gdshader`: Skybox shader (6-sided texture support).
-- **Global Properties**: Control dither settings globally using `Dither3DGlobalProperties` node.
+- **Ready-to-use Materials**:
+  - `materials/dither3d-opaque-default.tres`: A pre-configured material using the opaque shader. You can drop this directly onto your geometry to see the effect immediately.
 - **Texture Generator**: Generate required 3D textures within the editor.
-
-## Setup
-
-1. **Enable Plugin**:
-
-   - Go to **Project Settings -> Plugins** and enable **Dither3D**.
-
-2. **Generate Textures**:
-
-   - The shader requires special 3D textures.
-   - Create a new Scene or use an existing one.
-   - Add a node and attach `addons/dither3d/scripts/Dither3DTextureGenerator.gd`.
-   - In the Inspector, click **Generate Textures**.
-   - Textures will be saved in `addons/dither3d/textures/` (or `res://addons/dither3d_textures` if using the old script path, check the script).
-   - _Note: The script has been moved to `addons/dither3d/scripts/` and updated to output to `addons/dither3d/textures/` if you modify the path constant, otherwise it defaults to `res://addons/dither3d_textures`._
-
-3. **Use Shaders**:
-
-   - **Example Materials**: You can use the ready-to-use materials in `addons/dither3d/materials/` directly.
-   - **Manual Setup**:
-     - Create a `ShaderMaterial`.
-     - Assign one of the shaders from `addons/dither3d/shaders/`.
-     - Assign the generated `dither_tex` and `dither_ramp_tex`.
-
-4. **Global Control (Optional)**:
-   - Add a `Dither3DGlobalProperties` node to your scene.
-   - Adjust settings in the Inspector.
-   - Enable **Apply Overrides** to force settings on all materials in the scene.
-   - Enable **Scale With Screen** to keep dot size constant relative to screen height.
-
-## Notes
-
-- **Skybox**: The skybox shader approximates the original behavior. It requires 6 textures (Front, Back, Left, Right, Up, Down).
-- **Particles**: The particle shader is additive and unshaded.
-- **Global Properties**: This script iterates over the scene tree to find materials. It might be expensive on large scenes if updated frequently. It is recommended to use it for setup or occasional updates.
 
 ## License
 
