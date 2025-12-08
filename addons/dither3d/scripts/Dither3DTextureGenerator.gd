@@ -29,20 +29,6 @@ const TEXTURES_PATH = "res://addons/dither3d/textures"
 		if value: create_dither_3d_texture(4)
 		generate_16x16 = false
 
-@export var generate_32x32_SLOW: bool = false:
-	set(value):
-		if value: 
-			print("Warning: Generating 32x32 texture (512x512x1024) will take a long time and use ~256MB memory.")
-			create_dither_3d_texture(5)
-		generate_32x32_SLOW = false
-
-@export var generate_64x64_VERY_SLOW: bool = false:
-	set(value):
-		if value:
-			print("Warning: Generating 64x64 texture (1024x1024x4096) requires ~4GB memory and may crash Godot or freeze your PC for a long time.")
-			create_dither_3d_texture(6)
-		generate_64x64_VERY_SLOW = false
-
 @export_group("Batch Actions")
 @export var generate_standard_set: bool = false:
 	set(value):
