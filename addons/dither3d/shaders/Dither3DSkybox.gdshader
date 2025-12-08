@@ -17,6 +17,7 @@ uniform sampler2D down_tex : source_color, filter_linear;
 // The include function `get_dither_3d` takes `proj_matrix` as an argument.
 // So it should be fine as long as we pass a mat4.
 
+#define DITHER_NO_SCREEN_TEXTURE
 #include "Dither3DInclude.gdshaderinc"
 
 vec3 rotate_around_y_in_degrees(vec3 vertex, float degrees) {

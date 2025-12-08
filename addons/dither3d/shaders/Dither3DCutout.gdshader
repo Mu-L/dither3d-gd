@@ -10,6 +10,8 @@ uniform sampler2D texture_normal : hint_normal;
 uniform sampler2D texture_emission : source_color;
 uniform vec4 emission : source_color = vec4(0.0);
 
+uniform bool inherit_emission = false;
+
 #include "Dither3DInclude.gdshaderinc"
 
 void fragment() {
@@ -25,5 +27,10 @@ void fragment() {
 	METALLIC = metallic;
 	ROUGHNESS = roughness;
 	NORMAL_MAP = texture(texture_normal, UV).rgb;
-	EMISSION = texture(texture_emission, UV).rgb * emission.rgb;
+	
+	vec3 emission_color = texture(texture_emission, UV).rgb * emission.rgb;
+	if (inherit_emission) {
+		emission_color = texture(screen_texture, SCREEN_UV).rgb;
+	}
+	EMISSION = emission_color;
 }

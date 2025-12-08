@@ -1,5 +1,10 @@
 // Dither3DInclude.gdshaderinc
 
+#ifndef DITHER_NO_SCREEN_TEXTURE
+uniform bool inherit_albedo = false;
+uniform sampler2D screen_texture : hint_screen_texture, filter_nearest;
+#endif
+
 // Uniforms
 group_uniforms Dither_Input_Brightness;
 uniform float input_exposure : hint_range(0, 5) = 1.0;
@@ -17,6 +22,8 @@ uniform bool inverse_dots = false;
 uniform bool radial_compensation = false;
 uniform bool quantize_layers = false;
 uniform bool debug_fractal = false;
+
+
 
 // Helper functions
 float get_grayscale(vec3 color) {
@@ -132,7 +139,13 @@ vec4 get_dither_3d(vec2 uv_dither_tex, vec2 screen_uv, vec2 dx, vec2 dy, float b
 }
 
 vec3 get_dither_3d_color(vec2 uv_dither_tex, vec2 screen_uv, vec3 color, mat4 proj_matrix, vec2 dx, vec2 dy) {
-	vec3 c = clamp(color * input_exposure + input_offset, 0.0, 1.0);
+	vec3 input_c = color;
+#ifndef DITHER_NO_SCREEN_TEXTURE
+	if (inherit_albedo) {
+		input_c = texture(screen_texture, screen_uv).rgb;
+	}
+#endif
+	vec3 c = clamp(input_c * input_exposure + input_offset, 0.0, 1.0);
 	
 	if (dither_mode == 0) { // Grayscale
 		vec4 dither = get_dither_3d(uv_dither_tex, screen_uv, dx, dy, get_grayscale(c), proj_matrix);
@@ -156,7 +169,13 @@ vec3 get_dither_3d_color(vec2 uv_dither_tex, vec2 screen_uv, vec3 color, mat4 pr
 }
 
 vec3 get_dither_3d_color_alt_uv(vec2 uv_dither_tex, vec2 uv_dither_tex_alt, vec2 screen_uv, vec3 color, mat4 proj_matrix, vec2 dxA, vec2 dyA, vec2 dxB, vec2 dyB) {
-	vec3 c = clamp(color * input_exposure + input_offset, 0.0, 1.0);
+	vec3 input_c = color;
+#ifndef DITHER_NO_SCREEN_TEXTURE
+	if (inherit_albedo) {
+		input_c = texture(screen_texture, screen_uv).rgb;
+	}
+#endif
+	vec3 c = clamp(input_c * input_exposure + input_offset, 0.0, 1.0);
 	
 	vec2 dx = dot(dxA, dxA) < dot(dxB, dxB) ? dxA : dxB;
 	vec2 dy = dot(dyA, dyA) < dot(dyB, dyB) ? dyA : dyB;
