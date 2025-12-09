@@ -2,6 +2,7 @@
 extends ConfirmationDialog
 
 signal generate_requested(scene_path: String)
+signal generate_global_requested(scene_path: String)
 
 var _line_edit: LineEdit
 var _file_dialog: EditorFileDialog
@@ -38,13 +39,15 @@ func _init():
 	add_child(_file_dialog)
 	
 	confirmed.connect(_on_confirmed)
+	custom_action.connect(_on_custom_action)
 	
 	# Wait for ready to set button text safely or do it here if possible
 	# get_ok_button() might not be available in _init depending on Godot version/lifecycle
 	# But usually it is for ConfirmationDialog.
 	
 func _ready():
-	get_ok_button().text = "Generate"
+	get_ok_button().text = "Generate (Local)"
+	add_button("Generate (Global)", true, "global")
 
 func _on_browse_pressed():
 	_file_dialog.popup_centered_ratio(0.6)
@@ -54,3 +57,8 @@ func _on_file_selected(path: String):
 
 func _on_confirmed():
 	generate_requested.emit(_line_edit.text)
+
+func _on_custom_action(action: String):
+	if action == "global":
+		generate_global_requested.emit(_line_edit.text)
+		hide()

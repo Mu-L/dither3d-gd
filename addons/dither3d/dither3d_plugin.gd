@@ -3,28 +3,55 @@ extends EditorPlugin
 
 const DitherGeneratorScript = preload("scripts/Dither3DTextureGenerator.gd")
 const SceneConverterDialog = preload("scripts/Dither3DSceneConverterDialog.gd")
+const BottomPanelScript = preload("ui/dither3d_bottom_panel.gd")
 
 var _main_popup_menu: PopupMenu
 var _textures_popup_menu: PopupMenu
 var _scenes_popup_menu: PopupMenu
 var _scene_converter_dialog: ConfirmationDialog
+var _bottom_panel_control: Control
 
 func _enter_tree():
 	add_custom_type("Dither3DGlobalProperties", "Node", preload("scripts/Dither3DGlobalProperties.gd"), preload("icon.svg"))
 	
+	# Register as Autoload so it runs globally
+	add_autoload_singleton("Dither3DGlobals", "res://addons/dither3d/scripts/Dither3DGlobalProperties.gd")
+	
 	_scene_converter_dialog = SceneConverterDialog.new()
 	add_child(_scene_converter_dialog)
 	_scene_converter_dialog.generate_requested.connect(_on_scene_convert_requested)
+	_scene_converter_dialog.generate_global_requested.connect(_on_scene_convert_global_requested)
 	
 	_setup_tool_menu()
+	_register_global_uniforms()
+	
+	# Setup Bottom Panel
+	_bottom_panel_control = BottomPanelScript.new()
+	# We need to wrap it in a ScrollContainer because the panel might be small
+	var scroll = ScrollContainer.new()
+	scroll.name = "Dither3D Settings"
+	scroll.add_child(_bottom_panel_control)
+	_bottom_panel_control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bottom_panel_control.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	
+	# Add to editor bottom panel
+	add_control_to_bottom_panel(scroll, "Dither3D")
 
 func _exit_tree():
 	remove_custom_type("Dither3DGlobalProperties")
+	remove_autoload_singleton("Dither3DGlobals")
 	
 	if _scene_converter_dialog:
 		_scene_converter_dialog.queue_free()
+		
+	if _bottom_panel_control:
+		# The scroll container is the parent, we need to remove that
+		var scroll = _bottom_panel_control.get_parent()
+		remove_control_from_bottom_panel(scroll)
+		scroll.queue_free()
 	
 	_remove_tool_menu()
+	_unregister_global_uniforms()
 
 func _setup_tool_menu():
 	# Create the Textures submenu
@@ -96,7 +123,13 @@ func _on_scenes_menu_item_pressed(id: int):
 		0: _scene_converter_dialog.popup_centered()
 
 func _on_scene_convert_requested(path: String):
-	print("Dither3D: Generate requested for scene: ", path)
+	_process_scene_convert(path, false)
+
+func _on_scene_convert_global_requested(path: String):
+	_process_scene_convert(path, true)
+
+func _process_scene_convert(path: String, is_global: bool):
+	print("Dither3D: Generate requested for scene: ", path, " (Global: ", is_global, ")")
 	
 	if path.is_empty():
 		printerr("Dither3D: No scene path provided.")
@@ -105,7 +138,8 @@ func _on_scene_convert_requested(path: String):
 	var dir = path.get_base_dir()
 	var file_name = path.get_file().get_basename()
 	var extension = path.get_extension()
-	var new_path = dir + "/" + file_name + "_Dither3D." + extension
+	var suffix = "_Dither3D_Global" if is_global else "_Dither3D"
+	var new_path = dir + "/" + file_name + suffix + "." + extension
 	
 	# Load the original scene
 	var packed_scene = load(path)
@@ -119,7 +153,7 @@ func _on_scene_convert_requested(path: String):
 		return
 	
 	# Modify the scene
-	_recursive_apply_dither(root)
+	_recursive_apply_dither(root, is_global)
 	
 	# Pack and Save
 	var new_packed_scene = PackedScene.new()
@@ -138,13 +172,13 @@ func _on_scene_convert_requested(path: String):
 	
 	root.free()
 
-func _recursive_apply_dither(node: Node):
+func _recursive_apply_dither(node: Node, is_global: bool):
 	# Process GeometryInstance3D (MeshInstance3D, CSGShape3D, etc.)
 	if node is GeometryInstance3D:
 		if node.material_override:
-			node.material_override = _append_dither_pass(node.material_override)
+			node.material_override = _append_dither_pass(node.material_override, is_global)
 		if node.material_overlay:
-			node.material_overlay = _append_dither_pass(node.material_overlay)
+			node.material_overlay = _append_dither_pass(node.material_overlay, is_global)
 			
 	# Specific handling for MeshInstance3D surfaces
 	if node is MeshInstance3D:
@@ -156,19 +190,19 @@ func _recursive_apply_dither(node: Node):
 					mat = mesh.surface_get_material(i)
 				
 				if mat:
-					var new_mat = _append_dither_pass(mat)
+					var new_mat = _append_dither_pass(mat, is_global)
 					node.set_surface_override_material(i, new_mat)
 					
 	# Specific handling for CSGShape3D material slot
 	elif node is CSGShape3D:
 		if node.material:
-			node.material = _append_dither_pass(node.material)
+			node.material = _append_dither_pass(node.material, is_global)
 			
 	# Recurse children
 	for child in node.get_children():
-		_recursive_apply_dither(child)
+		_recursive_apply_dither(child, is_global)
 
-func _append_dither_pass(material: Material) -> Material:
+func _append_dither_pass(material: Material, is_global: bool) -> Material:
 	if not material:
 		return null
 		
@@ -182,20 +216,86 @@ func _append_dither_pass(material: Material) -> Material:
 			if _is_dither_material(new_mat.next_pass):
 				pass # Already has it
 			else:
-				new_mat.next_pass = _append_dither_pass(new_mat.next_pass)
+				new_mat.next_pass = _append_dither_pass(new_mat.next_pass, is_global)
 		else:
-			new_mat.next_pass = _get_dither_next_pass_instance()
+			new_mat.next_pass = _get_dither_next_pass_instance(is_global)
 			
 	return new_mat
 
 func _is_dither_material(mat: Material) -> bool:
 	if mat is ShaderMaterial and mat.shader:
-		if mat.shader.resource_path.ends_with("Dither3DNextPass.gdshader"):
+		if mat.shader.resource_path.ends_with("Dither3DNextPass.gdshader") or mat.shader.resource_path.ends_with("Dither3DNextPassGlobal.gdshader"):
 			return true
 	return false
 
-func _get_dither_next_pass_instance() -> Material:
-	var base = load("res://addons/dither3d/materials/dither3d-nextpass-default.tres")
+func _get_dither_next_pass_instance(is_global: bool) -> Material:
+	var path = "res://addons/dither3d/materials/dither3d-nextpass-default.tres"
+	if is_global:
+		path = "res://addons/dither3d/materials/global/dither3d-nextpass-global.tres"
+		
+	var base = load(path)
 	if base:
 		return base.duplicate()
 	return null
+
+func _register_global_uniforms():
+	var added = false
+	
+	added = _add_global_uniform("dither_input_exposure", "float", 1.0) or added
+	added = _add_global_uniform("dither_input_offset", "float", 0.0) or added
+	added = _add_global_uniform("dither_mode", "int", 1) or added # 1 = RGB
+	added = _add_global_uniform("dither_tex", "sampler3D", "res://addons/dither3d/textures/Dither3D_8x8.res") or added
+	added = _add_global_uniform("dither_ramp_tex", "sampler2D", "res://addons/dither3d/textures/Dither3D_8x8_Ramp.png") or added
+	added = _add_global_uniform("dither_dot_scale", "float", 5.0) or added
+	added = _add_global_uniform("dither_size_variability", "float", 1.0) or added
+	added = _add_global_uniform("dither_contrast", "float", 1.0) or added
+	added = _add_global_uniform("dither_stretch_smoothness", "float", 2.0) or added
+	added = _add_global_uniform("dither_inverse_dots", "bool", false) or added
+	added = _add_global_uniform("dither_radial_compensation", "bool", true) or added
+	added = _add_global_uniform("dither_quantize_layers", "bool", false) or added
+	added = _add_global_uniform("dither_debug_fractal", "bool", false) or added
+	
+	if added:
+		# Force save to ensure they are persisted and recognized
+		ProjectSettings.save()
+		print("Dither3D: Global uniforms registered and saved.")
+
+func _unregister_global_uniforms():
+	print("Dither3D: Unregistering global uniforms...")
+	_remove_global_uniform("dither_input_exposure")
+	_remove_global_uniform("dither_input_offset")
+	_remove_global_uniform("dither_mode")
+	_remove_global_uniform("dither_tex")
+	_remove_global_uniform("dither_ramp_tex")
+	_remove_global_uniform("dither_dot_scale")
+	_remove_global_uniform("dither_size_variability")
+	_remove_global_uniform("dither_contrast")
+	_remove_global_uniform("dither_stretch_smoothness")
+	_remove_global_uniform("dither_inverse_dots")
+	_remove_global_uniform("dither_radial_compensation")
+	_remove_global_uniform("dither_quantize_layers")
+	_remove_global_uniform("dither_debug_fractal")
+	
+	ProjectSettings.save()
+	print("Dither3D: Global uniforms unregistered and saved.")
+
+func _add_global_uniform(name: String, type: String, value) -> bool:
+	var setting_name = "shader_globals/" + name
+	if not ProjectSettings.has_setting(setting_name):
+		var dict = {
+			"type": type,
+			"value": value
+		}
+		ProjectSettings.set_setting(setting_name, dict)
+		ProjectSettings.set_initial_value(setting_name, dict)
+		# Also try to add it to the RenderingServer directly for immediate effect
+		# RenderingServer.global_shader_parameter_add(name, type, value) # This API might differ in GDScript
+		return true
+	return false
+
+func _remove_global_uniform(name: String):
+	var setting_name = "shader_globals/" + name
+	if ProjectSettings.has_setting(setting_name):
+		ProjectSettings.set_setting(setting_name, null)
+		# RenderingServer.global_shader_parameter_remove(name)
+

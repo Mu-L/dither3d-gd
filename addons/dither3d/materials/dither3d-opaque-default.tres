@@ -7,10 +7,12 @@
 [resource]
 render_priority = 0
 shader = ExtResource("1_gykdq")
-shader_parameter/albedo = Color(0.7372549, 0.7372549, 0.7372549, 1)
+shader_parameter/albedo = Color(0.7244759, 0.7244759, 0.7244759, 1)
 shader_parameter/roughness = 0.5
 shader_parameter/metallic = 0.0
 shader_parameter/emission = Color(0, 0, 0, 0)
+shader_parameter/inherit_emission = false
+shader_parameter/inherit_albedo = false
 shader_parameter/input_exposure = 1.0
 shader_parameter/input_offset = 0.0
 shader_parameter/dither_mode = 1

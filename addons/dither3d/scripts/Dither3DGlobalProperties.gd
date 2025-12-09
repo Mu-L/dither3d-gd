@@ -1,158 +1,151 @@
 @tool
 extends Node
 
-class_name Dither3DGlobalProperties
+# This script is intended to be an Autoload (Singleton) named 'Dither3DGlobals'.
+# It provides a GDScript API to control Dither3D global uniforms at runtime.
+# It also handles dynamic logic like "Scale with Screen".
 
-enum DitherColorMode { Grayscale, RGB, CMYK }
+signal settings_changed
 
-@export_group("Global Options")
-@export var color_mode: DitherColorMode = DitherColorMode.RGB:
-	set(value):
-		color_mode = value
-		update_global_options()
+# Configuration
+var scale_with_screen: bool = true
+var reference_res: int = 1080
 
-@export var inverse_dots: bool = false:
-	set(value):
-		inverse_dots = value
-		update_global_options()
-
-@export var radial_compensation: bool = false:
-	set(value):
-		radial_compensation = value
-		update_global_options()
-
-@export var quantize_layers: bool = false:
-	set(value):
-		quantize_layers = value
-		update_global_options()
-
-@export var debug_fractal: bool = false:
-	set(value):
-		debug_fractal = value
-		update_global_options()
-
-@export_group("Global Overrides")
-@export var apply_overrides: bool = false
-
-@export var input_exposure: float = 1.0
-@export var override_input_exposure: bool = false
-
-@export var input_offset: float = 0.0
-@export var override_input_offset: bool = false
-
-@export var dot_scale: float = 5.0
-@export var override_dot_scale: bool = false
-
-@export var size_variability: float = 0.0
-@export var override_size_variability: bool = false
-
-@export var contrast: float = 1.0
-@export var override_contrast: bool = false
-
-@export var stretch_smoothness: float = 1.0
-@export var override_stretch_smoothness: bool = false
-
-@export_group("Dots Scaling Behavior")
-@export var scale_with_screen: bool = true
-@export var reference_res: int = 1080
-
-@export_group("Actions")
-@export var update_now: bool = false:
-	set(value):
-		if value:
-			apply_settings_to_scene()
-		update_now = false
+# Internal state for base scale (before dynamic adjustment)
+var _base_dot_scale: float = 5.0
 
 func _ready():
-	if not Engine.is_editor_hint():
-		apply_settings_to_scene()
-		get_tree().root.size_changed.connect(apply_settings_to_scene)
-
-func update_global_options():
-	# In Unity, this enables keywords. In Godot, we set uniforms.
-	# We need to find materials and set the 'dither_mode', 'inverse_dots', etc.
-	if apply_overrides or Engine.is_editor_hint():
-		apply_settings_to_scene()
-
-func apply_settings_to_scene():
-	var root = get_tree().root
-	_process_node(root)
-
-func _process_node(node: Node):
-	if node is MeshInstance3D:
-		_process_material(node.material_override)
-		_process_material(node.material_overlay)
-		var mesh = node.mesh
-		if mesh:
-			for i in range(mesh.get_surface_count()):
-				_process_material(mesh.surface_get_material(i))
-				_process_material(node.get_surface_override_material(i))
+	# Wait a frame to ensure RenderingServer has synced global uniforms from ProjectSettings
+	await get_tree().process_frame
 	
-	# Handle other node types like CSG, Particles
-	if node is CSGShape3D:
-		_process_material(node.material)
-		_process_material(node.material_override)
+	# Sync all settings from ProjectSettings to RenderingServer
+	# This ensures that exported games (Runtime) load the correct values from project.godot
+	_sync_from_project_settings()
 	
-	if node is GPUParticles3D or node is CPUParticles3D:
-		_process_material(node.material_override)
-		# Particles usually have draw passes with materials
-		if node is GPUParticles3D:
-			for i in range(node.draw_passes):
-				var mesh = node.get_draw_pass_mesh(i)
-				if mesh:
-					for j in range(mesh.get_surface_count()):
-						_process_material(mesh.surface_get_material(j))
-
-	for child in node.get_children():
-		_process_node(child)
-
-func _process_material(mat: Material):
-	if mat is ShaderMaterial:
-		# Check if it's a Dither3D shader
-		# We can check if it has specific params
-		var shader = mat.shader
-		if shader:
-			# We can't easily check shader name, but we can check params
-			# Or we assume if it has "dither_tex" it is one.
-			var param_list = shader.get_shader_uniform_list()
-			var has_dither = false
-			for p in param_list:
-				if p.name == "dither_tex":
-					has_dither = true
-					break
-			
-			if has_dither:
-				_apply_to_material(mat)
-
-func _apply_to_material(mat: ShaderMaterial):
-	# Global Options
-	mat.set_shader_parameter("dither_mode", int(color_mode))
-	mat.set_shader_parameter("inverse_dots", inverse_dots)
-	mat.set_shader_parameter("radial_compensation", radial_compensation)
-	mat.set_shader_parameter("quantize_layers", quantize_layers)
-	mat.set_shader_parameter("debug_fractal", debug_fractal)
+	# Initialize base scale from current global setting
+	# We use a safe check to avoid errors if the uniform isn't registered yet
+	var current_scale = _safe_get_global("dither_dot_scale")
+	if current_scale != null:
+		_base_dot_scale = current_scale
 	
-	# Global Overrides
-	if override_input_exposure:
-		mat.set_shader_parameter("input_exposure", input_exposure)
-	if override_input_offset:
-		mat.set_shader_parameter("input_offset", input_offset)
-	if override_dot_scale:
-		var final_scale = dot_scale
-		if scale_with_screen:
-			var viewport_height = get_viewport().get_visible_rect().size.y
-			# In Editor, get_viewport() might return the editor viewport or the main window.
-			# If running in editor, we might want to use a fixed value or try to get the 3D view size.
-			# But for simplicity, let's use the viewport size.
-			var multiplier = float(viewport_height) / float(reference_res)
-			if multiplier > 0.0:
-				var log_delta = log(multiplier) / log(2.0)
-				final_scale += log_delta
+	# Connect to screen resize
+	get_tree().root.size_changed.connect(_on_viewport_size_changed)
+	_on_viewport_size_changed() # Initial update
+
+func _sync_from_project_settings():
+	# List of all our global variables
+	var vars = [
+		"dither_input_exposure", "dither_input_offset", "dither_mode",
+		"dither_dot_scale", "dither_size_variability", "dither_contrast", "dither_stretch_smoothness",
+		"dither_inverse_dots", "dither_radial_compensation", "dither_quantize_layers", "dither_debug_fractal"
+	]
+	
+	for v in vars:
+		_sync_single_var(v)
 		
-		mat.set_shader_parameter("dot_scale", final_scale)
-	if override_size_variability:
-		mat.set_shader_parameter("size_variability", size_variability)
-	if override_contrast:
-		mat.set_shader_parameter("contrast", contrast)
-	if override_stretch_smoothness:
-		mat.set_shader_parameter("stretch_smoothness", stretch_smoothness)
+	# Textures need special handling (loading from path)
+	_sync_texture_var("dither_tex")
+	_sync_texture_var("dither_ramp_tex")
+
+func _sync_single_var(name: String):
+	var setting_path = "shader_globals/" + name
+	if ProjectSettings.has_setting(setting_path):
+		var dict = ProjectSettings.get_setting(setting_path)
+		if dict is Dictionary and "value" in dict:
+			RenderingServer.global_shader_parameter_set(name, dict["value"])
+
+func _sync_texture_var(name: String):
+	var setting_path = "shader_globals/" + name
+	if ProjectSettings.has_setting(setting_path):
+		var dict = ProjectSettings.get_setting(setting_path)
+		if dict is Dictionary and "value" in dict:
+			var path = dict["value"]
+			if path is String and path != "":
+				var tex = load(path)
+				if tex:
+					RenderingServer.global_shader_parameter_set(name, tex)
+
+func _safe_get_global(name: String):
+	# In Godot 4.x, global_shader_parameter_get prints an error if the uniform doesn't exist.
+	# We can't easily check existence via RenderingServer API directly without error spam.
+	# So we check ProjectSettings first, which is the source of truth for "registered" globals.
+	if ProjectSettings.has_setting("shader_globals/" + name):
+		return RenderingServer.global_shader_parameter_get(name)
+	return null
+
+func _on_viewport_size_changed():
+	if scale_with_screen:
+		_update_dot_scale_dynamic()
+
+func _update_dot_scale_dynamic():
+	var viewport_height = get_viewport().get_visible_rect().size.y
+	# Avoid div by zero or invalid sizes
+	if viewport_height <= 0 or reference_res <= 0:
+		return
+		
+	var multiplier = float(viewport_height) / float(reference_res)
+	var log_delta = 0.0
+	if multiplier > 0.0:
+		log_delta = log(multiplier) / log(2.0)
+	
+	var final_scale = _base_dot_scale + log_delta
+	
+	# Only set if registered
+	if ProjectSettings.has_setting("shader_globals/dither_dot_scale"):
+		RenderingServer.global_shader_parameter_set("dither_dot_scale", final_scale)
+
+# --- Public API for Runtime Control ---
+
+func set_dither_mode(mode: int):
+	_set_global("dither_mode", mode)
+
+func set_input_exposure(value: float):
+	_set_global("dither_input_exposure", value)
+
+func set_input_offset(value: float):
+	_set_global("dither_input_offset", value)
+
+func set_dither_tex(tex: Texture3D):
+	_set_global("dither_tex", tex)
+
+func set_dither_ramp_tex(tex: Texture2D):
+	_set_global("dither_ramp_tex", tex)
+
+func set_dot_scale(value: float):
+	# This sets the BASE scale
+	_base_dot_scale = value
+	if scale_with_screen:
+		_update_dot_scale_dynamic()
+	else:
+		_set_global("dither_dot_scale", value)
+
+func set_size_variability(value: float):
+	_set_global("dither_size_variability", value)
+
+func set_contrast(value: float):
+	_set_global("dither_contrast", value)
+
+func set_stretch_smoothness(value: float):
+	_set_global("dither_stretch_smoothness", value)
+
+func set_inverse_dots(enabled: bool):
+	_set_global("dither_inverse_dots", enabled)
+
+func set_radial_compensation(enabled: bool):
+	_set_global("dither_radial_compensation", enabled)
+
+func set_quantize_layers(enabled: bool):
+	_set_global("dither_quantize_layers", enabled)
+
+func set_debug_fractal(enabled: bool):
+	_set_global("dither_debug_fractal", enabled)
+
+# --- Internal Helpers ---
+
+func _set_global(name: String, value):
+	if ProjectSettings.has_setting("shader_globals/" + name):
+		RenderingServer.global_shader_parameter_set(name, value)
+		settings_changed.emit()
+
+func get_global_uniform(name: String):
+	return _safe_get_global(name)
