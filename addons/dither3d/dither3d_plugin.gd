@@ -173,11 +173,16 @@ func _process_scene_convert(path: String, is_global: bool):
 	root.free()
 
 func _recursive_apply_dither(node: Node, is_global: bool):
+	# Debug print
+	# print("Dither3D: Visiting ", node.name, " (", node.get_class(), ")")
+
 	# Process GeometryInstance3D (MeshInstance3D, CSGShape3D, etc.)
 	if node is GeometryInstance3D:
 		if node.material_override:
+			print("Dither3D: Modifying material_override on ", node.name)
 			node.material_override = _append_dither_pass(node.material_override, is_global)
 		if node.material_overlay:
+			print("Dither3D: Modifying material_overlay on ", node.name)
 			node.material_overlay = _append_dither_pass(node.material_overlay, is_global)
 			
 	# Specific handling for MeshInstance3D surfaces
@@ -190,13 +195,19 @@ func _recursive_apply_dither(node: Node, is_global: bool):
 					mat = mesh.surface_get_material(i)
 				
 				if mat:
+					print("Dither3D: Modifying surface ", i, " on ", node.name)
 					var new_mat = _append_dither_pass(mat, is_global)
 					node.set_surface_override_material(i, new_mat)
 					
 	# Specific handling for CSGShape3D material slot
-	elif node is CSGShape3D:
+	# Note: CSGCombiner3D inherits from CSGShape3D but does NOT have a 'material' property exposed in the same way
+	# or it might be behaving differently. We should check if it has the property first.
+	elif node is CSGShape3D and not node is CSGCombiner3D:
 		if node.material:
+			print("Dither3D: Modifying material on CSG ", node.name)
 			node.material = _append_dither_pass(node.material, is_global)
+		else:
+			print("Dither3D: CSG ", node.name, " has no material assigned.")
 			
 	# Recurse children
 	for child in node.get_children():

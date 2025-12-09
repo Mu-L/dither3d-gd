@@ -16,8 +16,8 @@ var _base_dot_scale: float = 5.0
 
 func _ready():
 	# Wait a frame to ensure RenderingServer has synced global uniforms from ProjectSettings
-	await get_tree().process_frame
-	
+	for i in range(20):
+		await get_tree().process_frame	
 	# Sync all settings from ProjectSettings to RenderingServer
 	# This ensures that exported games (Runtime) load the correct values from project.godot
 	_sync_from_project_settings()
@@ -33,6 +33,7 @@ func _ready():
 	_on_viewport_size_changed() # Initial update
 
 func _sync_from_project_settings():
+	var available_globals = RenderingServer.global_shader_parameter_get_list()
 	# List of all our global variables
 	var vars = [
 		"dither_input_exposure", "dither_input_offset", "dither_mode",
@@ -41,11 +42,13 @@ func _sync_from_project_settings():
 	]
 	
 	for v in vars:
-		_sync_single_var(v)
-		
+		if v in available_globals:
+			_sync_single_var(v)		
 	# Textures need special handling (loading from path)
-	_sync_texture_var("dither_tex")
-	_sync_texture_var("dither_ramp_tex")
+	if "dither_tex" in available_globals:
+		_sync_texture_var("dither_tex")
+	if "dither_ramp_tex" in available_globals:
+		_sync_texture_var("dither_ramp_tex")
 
 func _sync_single_var(name: String):
 	var setting_path = "shader_globals/" + name
